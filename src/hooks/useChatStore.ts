@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 export interface Message {
   id: string;
@@ -37,15 +37,17 @@ export function useChatStore() {
   });
   const [isAnimalMode, setIsAnimalMode] = useState(false);
 
-  const persist = useCallback((convos: Conversation[]) => {
-    setConversations(convos);
-    saveConversations(convos);
-  }, []);
+  // Keep a ref in sync so callers can read the latest state synchronously.
+  const conversationsRef = useRef<Conversation[]>(conversations);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+    saveConversations(conversations);
+  }, [conversations]);
 
   const currentConversation = conversations.find((c) => c.id === currentId) || null;
 
   const createConversation = useCallback(() => {
-    const id = Date.now().toString();
+    const id = Date.now().toString() + Math.random().toString(36).slice(2, 6);
     const newConv: Conversation = {
       id,
       title: "New Conversation",
@@ -53,70 +55,74 @@ export function useChatStore() {
       date: new Date().toLocaleDateString(),
       mode: isAnimalMode ? "animal" : "environment",
     };
-    const updated = [newConv, ...conversations];
-    persist(updated);
+    setConversations((prev) => [newConv, ...prev]);
     setCurrentId(id);
     return id;
-  }, [conversations, persist, isAnimalMode]);
+  }, [isAnimalMode]);
 
   const addMessage = useCallback(
     (convId: string, role: "user" | "assistant", content: string) => {
-      const updated = conversations.map((c) => {
-        if (c.id !== convId) return c;
-        const msg: Message = { id: Date.now().toString() + Math.random(), role, content, timestamp: Date.now() };
-        const messages = [...c.messages, msg];
-        const title = c.messages.length === 0 && role === "user"
-          ? content.substring(0, 40) + (content.length > 40 ? "..." : "")
-          : c.title;
-        return { ...c, messages, title };
-      });
-      persist(updated);
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c;
+          const msg: Message = {
+            id: Date.now().toString() + Math.random(),
+            role,
+            content,
+            timestamp: Date.now(),
+          };
+          const messages = [...c.messages, msg];
+          const title =
+            c.messages.length === 0 && role === "user"
+              ? content.substring(0, 40) + (content.length > 40 ? "..." : "")
+              : c.title;
+          return { ...c, messages, title };
+        })
+      );
     },
-    [conversations, persist]
+    []
   );
 
   const updateLastAssistantMessage = useCallback(
     (convId: string, content: string) => {
-      const updated = conversations.map((c) => {
-        if (c.id !== convId) return c;
-        const msgs = [...c.messages];
-        const lastIdx = msgs.length - 1;
-        if (lastIdx >= 0 && msgs[lastIdx].role === "assistant") {
-          msgs[lastIdx] = { ...msgs[lastIdx], content };
-        }
-        return { ...c, messages: msgs };
-      });
-      persist(updated);
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c;
+          const msgs = [...c.messages];
+          const lastIdx = msgs.length - 1;
+          if (lastIdx >= 0 && msgs[lastIdx].role === "assistant") {
+            msgs[lastIdx] = { ...msgs[lastIdx], content };
+          }
+          return { ...c, messages: msgs };
+        })
+      );
     },
-    [conversations, persist]
+    []
   );
 
   const deleteConversation = useCallback(
     (id: string) => {
-      const updated = conversations.filter((c) => c.id !== id);
-      persist(updated);
-      if (currentId === id) {
-        setCurrentId(updated.length > 0 ? updated[0].id : null);
-      }
+      setConversations((prev) => {
+        const updated = prev.filter((c) => c.id !== id);
+        setCurrentId((cur) => (cur === id ? (updated[0]?.id ?? null) : cur));
+        return updated;
+      });
     },
-    [conversations, currentId, persist]
+    []
   );
 
   const clearAll = useCallback(() => {
-    persist([]);
+    setConversations([]);
     setCurrentId(null);
-  }, [persist]);
+  }, []);
 
-  const renameConversation = useCallback(
-    (id: string, title: string) => {
-      const updated = conversations.map((c) => (c.id === id ? { ...c, title } : c));
-      persist(updated);
-    },
-    [conversations, persist]
-  );
+  const renameConversation = useCallback((id: string, title: string) => {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
+  }, []);
 
   return {
     conversations,
+    conversationsRef,
     currentConversation,
     currentId,
     setCurrentId,
