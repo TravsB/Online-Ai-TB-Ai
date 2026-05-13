@@ -25,18 +25,21 @@ export default function Index() {
       }
 
       store.addMessage(convId, "user", content);
+      store.addMessage(convId, "assistant", "");
       setIsStreaming(true);
 
-      // Build message history for context
-      const conv = store.conversations.find((c) => c.id === convId);
-      const history = (conv?.messages || []).map((m) => ({
+      // Build message history from the latest ref (state updates are async)
+      const conv = store.conversationsRef.current.find((c) => c.id === convId);
+      const priorMsgs = (conv?.messages || []).filter(
+        (m) => !(m.role === "assistant" && m.content === "")
+      );
+      const history = priorMsgs.map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       }));
-      history.push({ role: "user", content });
-
-      // Create empty assistant message
-      store.addMessage(convId!, "assistant", "");
+      if (!history.some((h) => h.role === "user" && h.content === content)) {
+        history.push({ role: "user", content });
+      }
 
       let accumulated = "";
 
